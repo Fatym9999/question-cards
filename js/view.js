@@ -1,6 +1,7 @@
 import { appUrl, routeUrl } from './config.js';
 import { icon } from './icons.js';
 import { MODES, filterCards, cardCount, deckCount } from './study.js';
+import { MAX_PUSH_PER_DAY } from './push-config.js';
 
 export function escapeHTML(value = '') {
   return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -70,9 +71,9 @@ export function studyView(card, deck, position, total, revealed, { hasCards = tr
     <div class="ratings" aria-label="Оценка ответа"><button class="rating" data-action="rate" data-rating="again">Не знаю</button><button class="rating" data-action="rate" data-rating="hard">Сложно</button><button class="rating" data-action="rate" data-rating="good">Знаю</button></div></section>`;
 }
 
-export function settingsView(email, installation = {}) {
+export function settingsView(email, installation = {}, notificationSettings = {}) {
   return `<section class="page"><header class="page-heading"><h1>Настройки</h1></header><div class="stack">
-    <div class="surface setting-group"><a class="setting-row setting-link" href="${routeUrl({ view: 'notifications' })}" data-route="notifications">${icon('bell', 22)}<span class="setting-text">Уведомления<small>Выключены</small></span><span class="setting-arrow">${icon('right', 18)}</span></a></div>
+    <div class="surface setting-group"><a class="setting-row setting-link" href="${routeUrl({ view: 'notifications' })}" data-route="notifications">${icon('bell', 22)}<span class="setting-text">Уведомления<small>${notificationSettings.enabled ? `Включены, ${notificationSettings.per_day} раз в день` : 'Выключены'}</small></span><span class="setting-arrow">${icon('right', 18)}</span></a></div>
     <div class="surface setting-group"><button class="setting-row" data-action="installation" aria-label="Установка на телефон" aria-describedby="installation-summary">${icon('phone', 22)}<span class="setting-text">Установка на телефон<small id="installation-summary">${installation.standalone ? 'Установлено, открыто как приложение' : 'На экран «Домой», нужно для пушей на iPhone'}</small></span><span class="setting-arrow">${icon('right', 18)}</span></button></div>
     <div class="surface setting-group"><div class="setting-row">${icon('account', 22)}<span class="setting-text">Аккаунт<small>${e(email)}</small></span></div><button class="sign-out" data-action="sign-out">Выйти</button></div>
   </div></section>`;
@@ -84,22 +85,32 @@ export const PRESETS = Object.freeze({
   intensive: { label: 'Интенсив', per_day: 10, start_time: '09:00', end_time: '21:00' },
 });
 
-export function notificationsView(settings, decks) {
+export function notificationsView(settings, decks, push = {}) {
   const time = value => e(value?.slice(0, 5) ?? '');
   const preset = Object.entries(PRESETS).find(([, p]) => p.per_day === settings.per_day && p.start_time === settings.start_time.slice(0, 5) && p.end_time === settings.end_time.slice(0, 5))?.[0] ?? 'custom';
   const quiet = settings.quiet_start !== null;
+  const canConnect = push.supported && !push.installFirst && push.enoughCards && push.configured;
+  let hint = 'Вопросы приходят в выбранное время. Один и тот же вопрос — на все подключённые устройства.';
+  if (!push.enoughCards) hint = 'Добавь хотя бы три карточки, чтобы включить вопросы в уведомлениях.';
+  else if (push.installFirst) hint = 'На iPhone открой установленное приложение с иконки на экране «Домой».';
+  else if (!push.supported) hint = 'В этом браузере уведомления недоступны. Попробуй Chrome или установленное приложение на iPhone.';
+  else if (push.permission === 'denied') hint = 'Разреши уведомления в настройках браузера или телефона.';
+  else if (settings.enabled && !push.subscribed) hint = 'Уведомления включены, но это устройство ещё не подключено.';
+  if (push.error) hint = 'Подписка этого устройства не восстановилась. Нажми «Подключить это устройство».';
   return `<section class="page"><div class="toolbar center-toolbar">${back('settings')}<h1>Уведомления</h1></div><div class="stack notification-stack">
-    <div class="surface notification-main">${icon('bell', 22)}<span class="setting-text">Вопросы в уведомлениях<small>${settings.per_day} раз в день, с ${time(settings.start_time)} до ${time(settings.end_time)}</small></span>${switchButton('push-unavailable', false, 'Вопросы в уведомлениях', 'disabled')}</div>
-    <p class="helper notification-help">Отправка уведомлений ещё не настроена. Предпочтения уже можно сохранить.</p>
+    <div class="surface notification-main">${icon('bell', 22)}<span class="setting-text">Вопросы в уведомлениях<small>${settings.per_day} раз в день, с ${time(settings.start_time)} до ${time(settings.end_time)}</small></span>${switchButton('toggle-push', settings.enabled, 'Вопросы в уведомлениях', !settings.enabled && !canConnect ? 'disabled' : '')}</div>
+    <p class="helper notification-help">${hint}</p>
+    ${push.installFirst ? action('installation', 'Как установить на iPhone') : ''}
+    ${canConnect && settings.enabled && !push.subscribed ? '<button class="secondary" data-action="connect-push">Подключить это устройство</button>' : ''}
     <div class="surface controls-group"><div class="segments presets" aria-label="Режим уведомлений">${[...Object.entries(PRESETS).map(([key, p]) => [key, p.label]), ['custom', 'Свой']].map(([key, label]) => `<button class="segment" data-action="preset" data-preset="${key}" aria-pressed="${preset === key}">${label}</button>`).join('')}</div>
-    <div class="control-row"><span>Уведомлений в день</span><span class="stepper"><button class="icon-button" data-action="count" data-delta="-1" aria-label="Меньше" ${settings.per_day <= 1 ? 'disabled' : ''}>${icon('minus', 20)}</button><span class="stepper-output">${settings.per_day}</span><button class="icon-button" data-action="count" data-delta="1" aria-label="Больше">${icon('plus', 20)}</button></span></div>
+    <div class="control-row"><span>Уведомлений в день</span><span class="stepper"><button class="icon-button" data-action="count" data-delta="-1" aria-label="Меньше" ${settings.per_day <= 1 ? 'disabled' : ''}>${icon('minus', 20)}</button><span class="stepper-output">${settings.per_day}</span><button class="icon-button" data-action="count" data-delta="1" aria-label="Больше" ${settings.per_day >= MAX_PUSH_PER_DAY ? 'disabled' : ''}>${icon('plus', 20)}</button></span></div>
     <label class="control-row" for="start-time">Начало<input id="start-time" name="start_time" class="time-input" type="time" value="${time(settings.start_time)}" required></label>
     <label class="control-row" for="end-time">Конец<input id="end-time" name="end_time" class="time-input" type="time" value="${time(settings.end_time)}" required></label>
     <div class="control-row"><span>Не беспокоить</span>${switchButton('quiet', quiet, 'Не беспокоить')}</div>
     ${quiet ? `<div class="control-row quiet-times"><label for="quiet-start">С<input id="quiet-start" name="quiet_start" class="time-input" type="time" value="${time(settings.quiet_start)}" required></label><label for="quiet-end">До<input id="quiet-end" name="quiet_end" class="time-input" type="time" value="${time(settings.quiet_end)}" required></label></div>` : ''}</div>
     <div class="surface controls-group"><p class="group-label">Колоды для уведомлений</p>${decks.length ? decks.map(deck => `<div class="control-row"><span>${e(deck.name)}</span>${switchButton('deck-push', deck.push_enabled, deck.name, `data-id="${e(deck.id)}"`)}</div>`).join('') : '<p class="empty-note">Сначала создай колоду.</p>'}</div>
     <p class="helper notification-help">Часовой пояс: ${e(settings.timezone)}. Изменения сохраняются автоматически.</p>
-    <div class="center-text"><button class="text-button" disabled>Отправить тестовое уведомление</button></div>
+    <div class="center-text"><button class="text-button" data-action="test-push" ${push.subscribed && canConnect ? '' : 'disabled'}>Отправить тестовое уведомление</button></div>
   </div></section>`;
 }
 

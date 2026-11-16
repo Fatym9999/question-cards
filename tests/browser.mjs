@@ -13,7 +13,27 @@ const browser = await chromium.launch({
 const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
 await context.addInitScript(() => {
   window.__notificationRequests = 0;
-  Notification.requestPermission = async () => { window.__notificationRequests += 1; return 'default'; };
+  Object.defineProperty(Notification, 'permission', { get: () => localStorage.getItem('test-push-permission') || 'default' });
+  Notification.requestPermission = async () => {
+    window.__notificationRequests += 1;
+    localStorage.setItem('test-push-permission', 'granted');
+    return 'granted';
+  };
+  const fromStored = () => {
+    const stored = JSON.parse(localStorage.getItem('test-push-subscription') || 'null');
+    return stored ? {
+      endpoint: stored.endpoint, options: { applicationServerKey: new Uint8Array(stored.key).buffer },
+      toJSON: () => ({ endpoint: stored.endpoint, keys: { p256dh: 'test-key', auth: 'test-auth' } }),
+      unsubscribe: async () => { localStorage.removeItem('test-push-subscription'); return true; },
+    } : null;
+  };
+  PushManager.prototype.getSubscription = async () => fromStored();
+  PushManager.prototype.subscribe = async options => {
+    localStorage.setItem('test-push-subscription', JSON.stringify({
+      endpoint: 'https://fcm.googleapis.com/fcm/send/browser-test', key: Array.from(options.applicationServerKey),
+    }));
+    return fromStored();
+  };
 });
 const page = await context.newPage();
 page.setDefaultTimeout(10_000);
@@ -27,6 +47,8 @@ let decks = [];
 let cards = [];
 let settings = null;
 const reviews = [];
+let subscriptions = [];
+let testPushCalls = 0;
 let failNextReview = false;
 let conflictNextReview = false;
 const jwt = [
@@ -46,6 +68,7 @@ await page.route('https://nvirttjdirfzsormbcun.supabase.co/**', async route => {
   if (url.pathname.endsWith('/recover')) return json({});
   if (url.pathname.endsWith('/logout')) return route.fulfill({ status: 204 });
   if (url.pathname.endsWith('/user')) return json(user);
+  if (url.pathname.endsWith('/functions/v1/test-push')) { testPushCalls += 1; return json({ ok: true, sent: 1, removed: 0 }); }
   if (url.pathname.endsWith('/rpc/record_review')) {
     if (failNextReview) { failNextReview = false; return json({ message: 'Test network failure' }, 503); }
     const card = cards.find(c => c.id === body.p_card_id);
@@ -63,6 +86,20 @@ await page.route('https://nvirttjdirfzsormbcun.supabase.co/**', async route => {
   const table = url.pathname.split('/').at(-1);
   const id = url.searchParams.get('id')?.replace(/^eq\./, '');
   const single = request.headers().accept?.includes('vnd.pgrst.object');
+  if (table === 'push_subscriptions') {
+    if (method === 'POST') {
+      const existing = subscriptions.find(row => row.user_id === body.user_id && row.endpoint === body.endpoint);
+      if (existing) Object.assign(existing, body);
+      else subscriptions.push({ id: randomUUID(), ...body });
+      return json(single ? subscriptions.at(-1) : subscriptions);
+    }
+    if (method === 'DELETE') {
+      const endpoint = url.searchParams.get('endpoint')?.replace(/^eq\./, '');
+      subscriptions = subscriptions.filter(row => row.endpoint !== endpoint);
+      return route.fulfill({ status: 204 });
+    }
+    return json(subscriptions);
+  }
   if (table === 'notification_settings') {
     if (method === 'POST') settings = { user_id: user.id, enabled: false, per_day: 5, start_time: '09:00:00', end_time: '20:00:00', quiet_start: null, quiet_end: null, ...body };
     if (method === 'PATCH') Object.assign(settings, body);
@@ -214,7 +251,18 @@ try {
   assert.equal(settings.quiet_start, '12:00');
   await page.getByRole('switch', { name: 'Навигация', exact: true }).click(); await idle();
   assert.equal(decks[0].push_enabled, false);
-  assert.equal(settings.enabled, false, 'push не включается на этапе 2');
+  assert.equal(settings.enabled, false, 'изменение времени и колод само не включает push');
+  await page.getByRole('switch', { name: 'Навигация', exact: true }).click(); await idle();
+  await page.getByRole('switch', { name: 'Вопросы в уведомлениях', exact: true }).click(); await idle();
+  assert.equal(settings.enabled, true);
+  assert.equal(subscriptions.length, 1);
+  assert.equal(await page.evaluate(() => window.__notificationRequests), 1);
+  await click('Отправить тестовое уведомление');
+  assert.equal(testPushCalls, 1);
+  await click('Закрыть сообщение');
+  await page.screenshot({ path: `${output}11-push-enabled.png` });
+  await page.getByRole('switch', { name: 'Вопросы в уведомлениях', exact: true }).click(); await idle();
+  assert.equal(settings.enabled, false);
   await page.screenshot({ path: `${output}08-notifications.png` });
 
   await page.getByRole('link', { name: 'Колоды', exact: true }).click();
@@ -278,6 +326,7 @@ try {
   await click('Выйти');
   await page.getByRole('button', { name: 'Войти', exact: true }).waitFor();
   assert.equal(await page.locator('#navigation:visible').count(), 0);
+  assert.equal(subscriptions.length, 0, 'выход отвязывает устройство');
 
   await click('Не помню пароль');
   await fill('Почта', 'test@example.com'); await click('Отправить ссылку');
