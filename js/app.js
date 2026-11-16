@@ -4,6 +4,8 @@ import { routeUrl } from './config.js';
 import { MODES, buildQueue } from './study.js';
 import { icon } from './icons.js';
 import { pwa } from './pwa.js';
+import { createPushController } from './push.js';
+import { MAX_PUSH_PER_DAY } from './push-config.js';
 import {
   authView, decksView, deckView, studyView, settingsView, notificationsView,
   navigation, deckDialog, cardDialog, deleteDialog, installationDialog, loadingView,
@@ -14,6 +16,7 @@ const root = document.querySelector('#app');
 const nav = document.querySelector('#navigation');
 const dialog = document.querySelector('#editor');
 const notice = document.querySelector('#notice');
+const push = createPushController(api);
 const state = {
   user: null, decks: [], cards: [], settings: null, ready: false, failed: false,
   busy: false, route: readRoute(), filter: 'all', study: null,
@@ -52,6 +55,17 @@ function showNotice(message, isError = false) {
 
 function friendlyError(error) {
   const code = error?.code;
+  if (code === 'push_unsupported' || code === 'unsupported_push_service') return 'Уведомления в этом браузере пока не поддерживаются. Попробуй Safari на iPhone или Chrome на Android.';
+  if (code === 'install_first') return 'Сначала установи приложение на экран «Домой» и открой с иконки.';
+  if (code === 'not_enough_cards') return 'Сначала добавь хотя бы три карточки.';
+  if (code === 'permission_denied') return 'Уведомления не разрешены. Включи их в настройках браузера или телефона.';
+  if (code === 'pwa_not_ready' || code === 'subscription_error') return 'Не удалось подключить уведомления. Обнови страницу и попробуй снова.';
+  if (code === 'not_configured') return 'Отправка уведомлений ещё не настроена на сервере.';
+  if (code === 'no_subscriptions') return 'Подключи уведомления на этом устройстве.';
+  if (code === 'no_cards') return 'Сначала добавь карточки.';
+  if (code === 'no_enabled_decks') return 'Включи хотя бы одну колоду с карточками для уведомлений.';
+  if (code === 'test_rate_limit') return 'Тест можно отправлять не чаще раза в минуту.';
+  if (code === 'delivery_failed') return 'Уведомление не отправлено. Проверь подключение устройства и попробуй снова.';
   if (code === 'invalid_credentials') return 'Неверная почта или пароль.';
   if (code === 'email_not_confirmed') return 'Сначала подтверди почту по ссылке из письма.';
   if (code === 'email_address_not_authorized') return 'На этот адрес пока нельзя отправить письмо. Для первого теста используй почту своего аккаунта Supabase.';
@@ -115,6 +129,7 @@ function setStudy(mode = 'due', deckId = null, cardId = null) {
 }
 
 function render() {
+  push.setContext(state.user?.id ?? null, state.cards.length, state.settings?.enabled ?? false);
   nav.hidden = !state.user || !state.ready || state.authMode === 'reset';
   if (!state.user || state.authMode === 'reset') {
     root.innerHTML = authView(state.authMode, state.authMessage, pwa.snapshot());
@@ -133,14 +148,14 @@ function render() {
   else if (view === 'deck') {
     const deck = state.decks.find(item => item.id === state.route.deck);
     root.innerHTML = deck ? deckView(deck, state.cards, state.filter) : decksView(state.decks, state.cards);
-  } else if (view === 'settings') root.innerHTML = settingsView(state.user.email, pwa.snapshot());
-  else if (view === 'notifications') root.innerHTML = notificationsView(state.settings, state.decks);
+  } else if (view === 'settings') root.innerHTML = settingsView(state.user.email, pwa.snapshot(), state.settings);
+  else if (view === 'notifications') root.innerHTML = notificationsView(state.settings, state.decks, push.snapshot());
   else {
     if (!state.study) setStudy();
     const card = currentCard();
     root.innerHTML = studyView(card, state.decks.find(item => item.id === card?.deck_id),
       state.study.position + 1, state.study.queue.length, state.study.revealed,
-      { hasCards: state.cards.length > 0, enabled: false });
+      { hasCards: state.cards.length > 0, enabled: state.settings.enabled });
   }
   updateBusy();
 }
@@ -172,6 +187,7 @@ async function refreshData() {
       } else showNotice('Карточка удалена или недоступна.', true);
     }
     render();
+    void push.restore();
   } catch (error) {
     if (version !== loadVersion || state.user?.id !== userId) return;
     state.failed = true;
@@ -183,6 +199,9 @@ async function refreshData() {
 async function acceptSession(session, event = '') {
   const user = session?.user ?? null;
   if (!user) {
+    const previousUserId = state.user?.id;
+    push.setContext(null, 0, false);
+    void push.detach(previousUserId).catch(() => {});
     loadVersion += 1;
     loadingUserId = null;
     state.user = null;
@@ -335,7 +354,7 @@ document.addEventListener('click', async event => {
     const { per_day, start_time, end_time } = preset;
     return saveNotificationValues({ per_day, start_time, end_time });
   }
-  if (action === 'count') return saveNotificationValues({ per_day: Math.max(1, state.settings.per_day + Number(button.dataset.delta)) });
+  if (action === 'count') return saveNotificationValues({ per_day: Math.min(MAX_PUSH_PER_DAY, Math.max(1, state.settings.per_day + Number(button.dataset.delta))) });
   if (action === 'quiet') return saveNotificationValues(state.settings.quiet_start === null
     ? { quiet_start: '12:00', quiet_end: '14:00' } : { quiet_start: null, quiet_end: null });
 
@@ -376,10 +395,21 @@ document.addEventListener('click', async event => {
       state.cards = state.cards.filter(card => card.deck_id !== id);
       closeDialog(); navigate('decks');
     } else if (action === 'sign-out') {
+      try { await push.detach(userId); } catch { /* Выход из аккаунта должен работать и при сбое push-сервиса. */ }
       await api.signOut();
       state.authMode = 'login'; state.authMessage = '';
       await acceptSession(null);
       history.replaceState({}, '', routeUrl());
+    } else if (action === 'toggle-push' || action === 'connect-push') {
+      const enabled = action === 'connect-push' || !state.settings.enabled;
+      if (enabled) await push.enable();
+      const updated = await api.saveSettings(userId, { enabled });
+      if (updated.user_id !== state.user?.id) return;
+      state.settings = updated;
+      render();
+    } else if (action === 'test-push') {
+      await api.testPush();
+      showNotice('Тестовое уведомление отправлено. Проверь все подключённые устройства.');
     }
   });
 });
@@ -476,6 +506,12 @@ pwa.subscribe(() => {
     if (focusedAction) dialog.querySelector(`[data-action="${focusedAction}"]`)?.focus();
   }
   if (!state.busy && state.user && state.route.view === 'settings') render();
+});
+
+push.subscribe(() => {
+  const editing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+  if (!state.busy && state.ready && !dialog.open && !editing
+    && ['settings', 'notifications'].includes(state.route.view)) render();
 });
 
 supabase.auth.onAuthStateChange((event, session) => {

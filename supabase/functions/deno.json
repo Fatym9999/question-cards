@@ -1,0 +1,4 @@
+{
+  "lock": "./deno.lock",
+  "compilerOptions": { "lib": ["deno.window", "dom", "esnext"] }
+}

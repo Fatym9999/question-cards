@@ -87,4 +87,21 @@ export const api = {
     return unwrap(await supabase.from('notification_settings').update(values)
       .eq('user_id', userId).select().single());
   },
+  async saveSubscription(values) {
+    return unwrap(await supabase.from('push_subscriptions').upsert(values,
+      { onConflict: 'user_id,endpoint' }).select().single());
+  },
+  async deleteSubscription(userId, endpoint) {
+    return unwrap(await supabase.from('push_subscriptions').delete()
+      .eq('user_id', userId).eq('endpoint', endpoint));
+  },
+  async testPush() {
+    const result = await supabase.functions.invoke('test-push', { body: {} });
+    if (result.error) {
+      let code = 'delivery_failed';
+      try { code = (await result.error.context.json()).error ?? code; } catch { /* Нет структурированного ответа. */ }
+      throw Object.assign(new Error(code), { code });
+    }
+    return result.data;
+  },
 };

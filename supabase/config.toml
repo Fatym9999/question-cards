@@ -1,0 +1,11 @@
+project_id = "question-cards"
+
+[functions.plan-schedule]
+verify_jwt = false
+
+[functions.send-due-pushes]
+verify_jwt = false
+
+[functions.test-push]
+# JWT проверяется через Supabase Auth внутри функции.
+verify_jwt = false
