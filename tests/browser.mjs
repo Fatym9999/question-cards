@@ -49,6 +49,7 @@ let settings = null;
 const reviews = [];
 let subscriptions = [];
 let testPushCalls = 0;
+let settingsWrites = 0;
 let failNextReview = false;
 let conflictNextReview = false;
 const jwt = [
@@ -102,7 +103,7 @@ await page.route('https://nvirttjdirfzsormbcun.supabase.co/**', async route => {
   }
   if (table === 'notification_settings') {
     if (method === 'POST') settings = { user_id: user.id, enabled: false, per_day: 5, start_time: '09:00:00', end_time: '20:00:00', quiet_start: null, quiet_end: null, ...body };
-    if (method === 'PATCH') Object.assign(settings, body);
+    if (method === 'PATCH') { settingsWrites += 1; Object.assign(settings, body); }
     return json(single ? settings : settings ? [settings] : []);
   }
   const list = table === 'decks' ? decks : table === 'cards' ? cards : null;
@@ -261,6 +262,25 @@ try {
   assert.equal(testPushCalls, 1);
   await click('Закрыть сообщение');
   await page.screenshot({ path: `${output}11-push-enabled.png` });
+  // После переустановки/потери локальной подписки общий enabled остаётся в БД.
+  await page.evaluate(() => {
+    localStorage.removeItem('test-push-subscription');
+    localStorage.setItem('test-push-permission', 'default');
+    for (const key of Object.keys(localStorage)) if (key.startsWith('question-cards-push-owner:')) localStorage.removeItem(key);
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Подключить это устройство', exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Отправить тестовое уведомление', exact: true }).isEnabled(), false);
+  const writesBeforeReconnect = settingsWrites;
+  await click('Подключить это устройство');
+  assert.equal(await page.getByRole('button', { name: 'Подключить это устройство', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'Отправить тестовое уведомление', exact: true }).isEnabled(), true);
+  assert.equal(settingsWrites, writesBeforeReconnect, 'подключение устройства не меняет общие настройки');
+  assert.equal(await page.evaluate(() => window.__notificationRequests), 1);
+  await click('Отправить тестовое уведомление');
+  assert.equal(testPushCalls, 2);
+  await click('Закрыть сообщение');
+  console.log('PASS: повторное подключение после переустановки убирает кнопку и включает тест push.');
   await page.getByRole('switch', { name: 'Вопросы в уведомлениях', exact: true }).click(); await idle();
   assert.equal(settings.enabled, false);
   await page.screenshot({ path: `${output}08-notifications.png` });

@@ -27,6 +27,7 @@ let loadingUserId = null;
 let lastLoaded = 0;
 let lastFocus = null;
 let noticeTimer;
+let pushRenderPending = false;
 
 function readRoute() {
   const query = new URLSearchParams(location.search);
@@ -107,6 +108,10 @@ async function work(callback) {
   } finally {
     state.busy = false;
     updateBusy();
+    if (pushRenderPending) {
+      pushRenderPending = false;
+      refreshPushView();
+    }
   }
 }
 
@@ -403,9 +408,11 @@ document.addEventListener('click', async event => {
     } else if (action === 'toggle-push' || action === 'connect-push') {
       const enabled = action === 'connect-push' || !state.settings.enabled;
       if (enabled) await push.enable();
-      const updated = await api.saveSettings(userId, { enabled });
-      if (updated.user_id !== state.user?.id) return;
-      state.settings = updated;
+      if (enabled !== state.settings.enabled) {
+        const updated = await api.saveSettings(userId, { enabled });
+        if (updated.user_id !== state.user?.id) return;
+        state.settings = updated;
+      }
       render();
     } else if (action === 'test-push') {
       await api.testPush();
@@ -508,10 +515,15 @@ pwa.subscribe(() => {
   if (!state.busy && state.user && state.route.view === 'settings') render();
 });
 
-push.subscribe(() => {
+function refreshPushView() {
   const editing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
   if (!state.busy && state.ready && !dialog.open && !editing
     && ['settings', 'notifications'].includes(state.route.view)) render();
+}
+
+push.subscribe(() => {
+  if (state.busy) { pushRenderPending = true; return; }
+  refreshPushView();
 });
 
 supabase.auth.onAuthStateChange((event, session) => {

@@ -105,3 +105,29 @@ test('запрещённое разрешение не запрашиваетс�
   await assert.rejects(f.controller.enable(), error => error.code === 'permission_denied');
   assert.equal(f.counters.permissions, 0);
 });
+
+test('запоздавшая ошибка restore не сбрасывает успешное ручное подключение', async () => {
+  const f = fixture({ permission: 'granted' });
+  const originalGet = f.worker.pushManager.getSubscription;
+  let failRestore;
+  const waiting = new Promise((_, reject) => { failRestore = reject; });
+  let calls = 0;
+  f.worker.pushManager.getSubscription = () => calls++ === 0 ? waiting : originalGet();
+  const restoring = f.controller.restore();
+  await new Promise(setImmediate);
+  const enabling = f.controller.enable();
+  await new Promise(setImmediate);
+  failRestore(new Error('old restore failed'));
+  await Promise.all([restoring, enabling]);
+  assert.equal(f.controller.snapshot().subscribed, true);
+  assert.equal(f.controller.snapshot().error, null);
+});
+
+test('параллельные restore и enable создают только одну действующую подписку', async () => {
+  const f = fixture({ permission: 'granted' });
+  await Promise.all([f.controller.restore(), f.controller.enable(), f.controller.restore()]);
+  assert.equal(f.counters.subscribe, 1);
+  assert.equal(f.counters.unsubscribe, 0);
+  assert.equal(f.records.size, 1);
+  assert.equal(f.controller.snapshot().subscribed, true);
+});

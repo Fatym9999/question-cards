@@ -11,12 +11,19 @@ export function createPushController(api, win = globalThis.window) {
   let generation = 0;
   let subscribed = false;
   let lastError = null;
+  let operations = Promise.resolve();
   const listeners = new Set();
   const changed = () => listeners.forEach(listener => listener());
   const owner = () => { try { return win.localStorage.getItem(ownerKey); } catch { return null; } };
   const setOwner = value => { try { value ? win.localStorage.setItem(ownerKey, value) : win.localStorage.removeItem(ownerKey); } catch { /* Подписку всё равно проверяем через PushManager. */ } };
   const supported = () => Boolean(win.isSecureContext && 'serviceWorker' in win.navigator && 'PushManager' in win && 'Notification' in win);
   const current = (version, userId) => generation === version && context.userId === userId;
+  // restore, ручное подключение и выход не меняют одну подписку одновременно.
+  function exclusive(callback) {
+    const operation = operations.then(callback, callback);
+    operations = operation.catch(() => {});
+    return operation;
+  }
 
   async function registration() {
     let timer;
@@ -74,12 +81,15 @@ export function createPushController(api, win = globalThis.window) {
     async restore() {
       const version = generation, userId = context.userId;
       if (!userId || !supported() || this.snapshot().installFirst) return;
-      try {
-        // После уже выданного разрешения восстановление не показывает системный запрос.
-        await synchronize(win.Notification.permission === 'granted' && context.enabled, version, userId);
-        if (current(version, userId)) lastError = null;
-      } catch { if (current(version, userId)) { subscribed = false; lastError = 'restore_failed'; } }
-      if (current(version, userId)) changed();
+      return exclusive(async () => {
+        if (!current(version, userId)) return;
+        try {
+          // После уже выданного разрешения восстановление не показывает системный запрос.
+          await synchronize(win.Notification.permission === 'granted' && context.enabled, version, userId);
+          if (current(version, userId)) lastError = null;
+        } catch { if (current(version, userId)) { subscribed = false; lastError = 'restore_failed'; } }
+        if (current(version, userId)) changed();
+      });
     },
     async enable() {
       const status = this.snapshot();
@@ -93,26 +103,32 @@ export function createPushController(api, win = globalThis.window) {
         ? win.Notification.requestPermission() : Promise.resolve(win.Notification.permission);
       const version = generation, userId = context.userId;
       if (await permission !== 'granted') throw pushError('permission_denied');
-      await synchronize(true, version, userId);
-      if (!current(version, userId) || !subscribed) throw pushError('subscription_error');
-      lastError = null;
-      changed();
+      await exclusive(async () => {
+        if (!current(version, userId)) throw pushError('subscription_error');
+        await synchronize(true, version, userId);
+        if (!current(version, userId) || !subscribed) throw pushError('subscription_error');
+        lastError = null;
+        changed();
+      });
     },
     async detach(userId = context.userId) {
       const version = ++generation;
       if (!supported()) { setOwner(null); return; }
-      try {
-        const worker = await win.navigator.serviceWorker.getRegistration(appUrl());
-        const subscription = await worker?.pushManager.getSubscription();
+      return exclusive(async () => {
         if (generation !== version) return;
-        if (subscription && userId) {
-          try { await api.deleteSubscription(userId, subscription.endpoint); } catch { /* unsubscribe всё равно нужен при выходе. */ }
+        try {
+          const worker = await win.navigator.serviceWorker.getRegistration(appUrl());
+          const subscription = await worker?.pushManager.getSubscription();
+          if (generation !== version) return;
+          if (subscription && userId) {
+            try { await api.deleteSubscription(userId, subscription.endpoint); } catch { /* unsubscribe всё равно нужен при выходе. */ }
+          }
+          if (generation !== version) return;
+          await subscription?.unsubscribe();
+        } finally {
+          if (generation === version) { subscribed = false; setOwner(null); changed(); }
         }
-        if (generation !== version) return;
-        await subscription?.unsubscribe();
-      } finally {
-        if (generation === version) { subscribed = false; setOwner(null); changed(); }
-      }
+      });
     },
   };
 }
