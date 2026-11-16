@@ -6,6 +6,9 @@ export interface Subscription { id: string; user_id: string; endpoint: string; p
 export interface Card { id: string; question: string; deck_name: string }
 
 export const allowedEndpoint = supportedPushEndpoint;
+// Даём телефону до 15 минут на краткий обрыв связи. Проверка опоздания слота
+// на сервере остаётся прежней: больше 5 минут — пропуск до отправки.
+export const PUSH_TTL_SECONDS = 900;
 
 // Библиотека использует глобальный Fetch API. Ограничение касается только её
 // VAPID-запросов; запросы Supabase/Auth остаются обычными.
@@ -62,7 +65,7 @@ export async function deliver(card: Card, subscriptions: Subscription[], topic: 
         if (!allowedEndpoint(subscription.endpoint)) continue;
         const subscriber = application.subscribe({ endpoint: subscription.endpoint,
           keys: { p256dh: subscription.p256dh, auth: subscription.auth } });
-        await subscriber.pushTextMessage(message, { ttl: 60, urgency: Urgency.High, topic: topic.replace(/-/g, '').slice(0, 32) });
+        await subscriber.pushTextMessage(message, { ttl: PUSH_TTL_SECONDS, urgency: Urgency.High, topic: topic.replace(/-/g, '').slice(0, 32) });
         sent += 1;
       } catch (error) {
         const status = error instanceof PushMessageError ? error.response.status : 0;
