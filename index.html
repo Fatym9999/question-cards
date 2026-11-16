@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#F1EEE9">
+  <meta name="description" content="Карточки для спокойного, регулярного повторения.">
+  <title>Карточки</title>
+</head>
+<body>
+  <div class="app-shell">
+    <div class="background-spot spot-one" aria-hidden="true"></div>
+    <div class="background-spot spot-two" aria-hidden="true"></div>
+    <main id="app" tabindex="-1" aria-label="Карточки"><p class="boot" role="status">Загружаем карточки…</p></main>
+    <nav id="navigation" aria-label="Основная навигация" hidden></nav>
+  </div>
+  <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+  <dialog id="editor" aria-labelledby="dialog-title"></dialog>
+  <noscript><p class="boot">Для работы приложения включи JavaScript в браузере.</p></noscript>
+  <!-- Относительный входной модуль загружает остальные ресурсы через BASE_PATH. -->
+  <script type="module" src="./js/bootstrap.js"></script>
+</body>
+</html>

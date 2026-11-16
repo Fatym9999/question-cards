@@ -1,0 +1,25 @@
+{
+  "stylesheet": "https://fonts.googleapis.com/css2?family=Lora:wght@500&family=Manrope:wght@400;500;600&display=swap",
+  "files": [
+    {
+      "file": "26bad053b5abef.ttf",
+      "source": "https://fonts.gstatic.com/s/lora/v37/0QI6MX1D_JOuGQbT0gvTJPa787wsuyJG.ttf",
+      "bytes": 132320
+    },
+    {
+      "file": "e67b0c8eafbd46.ttf",
+      "source": "https://fonts.gstatic.com/s/manrope/v23/xn7_YHE41ni1AdIRqAuZuw1Bx9mbZk79FO_F.ttf",
+      "bytes": 96200
+    },
+    {
+      "file": "00a65a8efb4038.ttf",
+      "source": "https://fonts.gstatic.com/s/manrope/v23/xn7_YHE41ni1AdIRqAuZuw1Bx9mbZk7PFO_F.ttf",
+      "bytes": 96300
+    },
+    {
+      "file": "beeb7fd59d9b2c.ttf",
+      "source": "https://fonts.gstatic.com/s/manrope/v23/xn7_YHE41ni1AdIRqAuZuw1Bx9mbZk4jE-_F.ttf",
+      "bytes": 96348
+    }
+  ]
+}
