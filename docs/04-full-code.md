@@ -4,6 +4,7 @@
 Все новые и изменённые исходные файлы приведены полностью. Приватные push.env и cron SQL не публикуются; SQL создаётся генератором из секретов.
 Порядок настройки: [04-push.md](04-push.md).
 
+
 ## /Users/roman/Documents/Codex/test/question-cards/js/push-config.js
 
 ````javascript
@@ -1569,6 +1570,17 @@ grant execute on function public.plan_push_schedule(uuid, timestamptz),
 commit;
 ````
 
+## /Users/roman/Documents/Codex/test/question-cards/supabase/migrations/20261116171525_enable_push_cron.sql
+
+````sql
+begin;
+create extension if not exists pg_cron with schema pg_catalog;
+create extension if not exists pg_net with schema extensions;
+revoke all on table net.http_request_queue from public, anon, authenticated;
+revoke all on table net._http_response from public, anon, authenticated;
+commit;
+````
+
 ## /Users/roman/Documents/Codex/test/question-cards/supabase/tests/003_push_schedule.sql
 
 ````sql
@@ -2311,7 +2323,8 @@ HTML + CSS + JavaScript ES-модули, без сборки. Бэкенд — S
 Этап 2 (интерфейс и повторение) реализован и проверен пользователем в браузере.
 Этап 3 (PWA) проверен пользователем на iPhone.
 Этап 4 (push) реализован: миграция применена, три Edge Functions развёрнуты.
-Осталось подключить secrets/cron, опубликовать интерфейс и проверить реальный push.
+Секрет cron проверен, задания планирования и отправки включены.
+Осталось опубликовать интерфейс из dev в main и проверить реальный push.
 
 ## Запуск
 
