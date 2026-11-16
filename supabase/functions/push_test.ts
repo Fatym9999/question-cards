@@ -14,7 +14,7 @@ Deno.env.set('APP_ORIGIN', 'https://example.com');
 Deno.env.set('SUPABASE_URL', 'https://database.example');
 Deno.env.set('SUPABASE_SECRET_KEYS', JSON.stringify({ default: 'test-secret' }));
 
-const { deliver, pushPayload } = await import('./_shared/push.ts');
+const { deliver, pushPayload, PUSH_TTL_SECONDS } = await import('./_shared/push.ts');
 const { handler, authenticatedUser } = await import('./_shared/core.ts');
 const { decodeApplicationKey } = await import('../../js/push-utils.js');
 function assert(value: unknown, message = 'assertion failed'): asserts value { if (!value) throw new Error(message); }
@@ -42,7 +42,7 @@ Deno.test('VAPID проверяется, payload расшифровываетс�
   const sent = calls.find(call => call.url === subscription.endpoint)!;
   const headers = new Headers(sent.init.headers);
   assert(headers.get('Content-Encoding') === 'aes128gcm');
-  assert(headers.get('TTL') === '60');
+  assert(PUSH_TTL_SECONDS === 900 && headers.get('TTL') === '900');
   assert(sent.init.redirect === 'error');
   const authorization = headers.get('Authorization')!;
   const token = authorization.match(/t=([^,]+)/)![1];
