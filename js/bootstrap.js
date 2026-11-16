@@ -1,4 +1,11 @@
 import { appUrl } from './config.js';
+import { pwa } from './pwa.js';
+
+document.querySelector('#app-manifest').href = appUrl('manifest.webmanifest');
+document.querySelector('#apple-icon').href = appUrl('assets/icons/apple-touch-icon.png');
+document.querySelector('#app-icon').href = appUrl('assets/icons/icon.svg');
+// Регистрация запускается независимо от входа и не запрашивает разрешение на push.
+void pwa.start();
 
 try {
   await Promise.all(['assets/fonts/fonts.css', 'css/styles.css'].map(path => new Promise((resolve, reject) => {
