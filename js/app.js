@@ -3,10 +3,11 @@ import { api } from './api.js';
 import { routeUrl } from './config.js';
 import { MODES, buildQueue } from './study.js';
 import { icon } from './icons.js';
+import { pwa } from './pwa.js';
 import {
   authView, decksView, deckView, studyView, settingsView, notificationsView,
-  navigation, deckDialog, cardDialog, deleteDialog, dialogHeading, loadingView,
-  PRESETS, escapeHTML,
+  navigation, deckDialog, cardDialog, deleteDialog, installationDialog, loadingView,
+  PRESETS,
 } from './view.js';
 
 const root = document.querySelector('#app');
@@ -116,7 +117,7 @@ function setStudy(mode = 'due', deckId = null, cardId = null) {
 function render() {
   nav.hidden = !state.user || !state.ready || state.authMode === 'reset';
   if (!state.user || state.authMode === 'reset') {
-    root.innerHTML = authView(state.authMode, state.authMessage);
+    root.innerHTML = authView(state.authMode, state.authMessage, pwa.snapshot());
     updateBusy();
     return;
   }
@@ -132,7 +133,7 @@ function render() {
   else if (view === 'deck') {
     const deck = state.decks.find(item => item.id === state.route.deck);
     root.innerHTML = deck ? deckView(deck, state.cards, state.filter) : decksView(state.decks, state.cards);
-  } else if (view === 'settings') root.innerHTML = settingsView(state.user.email);
+  } else if (view === 'settings') root.innerHTML = settingsView(state.user.email, pwa.snapshot());
   else if (view === 'notifications') root.innerHTML = notificationsView(state.settings, state.decks);
   else {
     if (!state.study) setStudy();
@@ -215,6 +216,7 @@ async function acceptSession(session, event = '') {
 }
 
 function openDialog(html) {
+  delete dialog.dataset.kind;
   lastFocus = document.activeElement;
   dialog.innerHTML = html;
   if (!dialog.open) dialog.showModal();
@@ -227,6 +229,7 @@ function closeDialog() {
 }
 
 dialog.addEventListener('close', () => {
+  delete dialog.dataset.kind;
   if (lastFocus?.isConnected) lastFocus.focus({ preventScroll: true });
   else root.focus({ preventScroll: true });
 });
@@ -286,6 +289,20 @@ document.addEventListener('click', async event => {
     render();
     return;
   }
+  if (action === 'installation') {
+    openDialog(installationDialog(pwa.snapshot()));
+    dialog.dataset.kind = 'installation';
+    return;
+  }
+  if (action === 'install-pwa') {
+    try {
+      const outcome = await pwa.install();
+      if (outcome === 'accepted') showNotice('Установка подтверждена. Открой иконку «Карточки».');
+    } catch {
+      showNotice('Не удалось открыть установку. Используй меню браузера.', true);
+    }
+    return;
+  }
   if (!state.user) return;
   if (action === 'reload') return refreshData();
   if (action === 'new-deck') return openDialog(deckDialog());
@@ -312,10 +329,6 @@ document.addEventListener('click', async event => {
     navigate('decks'); return;
   }
   if (action === 'reveal') { state.study.revealed = true; render(); return; }
-  if (action === 'installation') {
-    openDialog(`${dialogHeading('Установка на телефон')}<p class="dialog-message">Возможность установить приложение на экран «Домой» появится после настройки установки.</p>`);
-    return;
-  }
   if (action === 'preset') {
     const preset = PRESETS[button.dataset.preset];
     if (!preset) { document.querySelector('#start-time')?.focus(); return; }
@@ -456,6 +469,15 @@ setInterval(() => {
 }, 60_000);
 
 // Не вызываем асинхронные Auth-методы внутри синхронного callback SDK.
+pwa.subscribe(() => {
+  if (dialog.open && dialog.dataset.kind === 'installation') {
+    const focusedAction = document.activeElement?.dataset.action;
+    dialog.innerHTML = installationDialog(pwa.snapshot());
+    if (focusedAction) dialog.querySelector(`[data-action="${focusedAction}"]`)?.focus();
+  }
+  if (!state.busy && state.user && state.route.view === 'settings') render();
+});
+
 supabase.auth.onAuthStateChange((event, session) => {
   setTimeout(() => { acceptSession(session, event).catch(() => showNotice('Не удалось восстановить вход. Обнови страницу.', true)); }, 0);
 });

@@ -142,6 +142,13 @@ dialog::backdrop { background: rgba(43,38,34,.25); backdrop-filter: blur(6px); -
 .dialog-heading .icon-button { margin-right: -12px; border: 0; background: none; }
 .dialog-form { display: flex; flex-direction: column; gap: 18px; }
 .dialog-message { font-size: 16px; line-height: 1.6; white-space: pre-wrap; }
+.install-intro { display: flex; align-items: center; gap: 16px; }
+.install-intro h3 { margin: 0 0 4px; font: 600 18px/1.4 Manrope, system-ui, sans-serif; }
+.install-icon { flex: none; width: 72px; height: 72px; border-radius: 18px; border: 1px solid var(--line); }
+.install-steps { margin: 0; padding-left: 24px; font-size: 16px; line-height: 1.6; }
+.install-steps li + li { margin-top: 10px; }
+.install-steps li::marker { color: var(--link); font-weight: 600; }
+.install-done { text-align: center; }
 .dialog-actions { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 .dialog-actions .text-button { text-align: center; }
 .check-field { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 15px; }

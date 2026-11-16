@@ -1,4 +1,4 @@
-import { routeUrl } from './config.js';
+import { appUrl, routeUrl } from './config.js';
 import { icon } from './icons.js';
 import { MODES, filterCards, cardCount, deckCount } from './study.js';
 
@@ -18,7 +18,7 @@ export function navigation(active) {
     `<a class="nav-tab" href="${routeUrl({ view: key })}" data-route="${key}" ${key === active ? 'aria-current="page"' : ''}>${icon(key)}<span>${title}</span></a>`).join('');
 }
 
-export function authView(mode, message = '') {
+export function authView(mode, message = '', installation = {}) {
   const register = mode === 'register';
   const reset = mode === 'reset';
   const recover = mode === 'recover';
@@ -36,6 +36,7 @@ export function authView(mode, message = '') {
     ${!register && !reset && !recover ? action('auth-mode', 'Не помню пароль', 'data-mode="recover"') : ''}
     ${recover ? action('auth-mode', 'Вернуться ко входу', 'data-mode="login"') : ''}
     ${register ? '<p class="helper">После регистрации подтверди почту по ссылке из письма.</p>' : ''}
+    ${installation.ios && !installation.standalone ? action('installation', 'Как установить на iPhone') : ''}
   </section>`;
 }
 
@@ -69,10 +70,10 @@ export function studyView(card, deck, position, total, revealed, { hasCards = tr
     <div class="ratings" aria-label="Оценка ответа"><button class="rating" data-action="rate" data-rating="again">Не знаю</button><button class="rating" data-action="rate" data-rating="hard">Сложно</button><button class="rating" data-action="rate" data-rating="good">Знаю</button></div></section>`;
 }
 
-export function settingsView(email) {
+export function settingsView(email, installation = {}) {
   return `<section class="page"><header class="page-heading"><h1>Настройки</h1></header><div class="stack">
     <div class="surface setting-group"><a class="setting-row setting-link" href="${routeUrl({ view: 'notifications' })}" data-route="notifications">${icon('bell', 22)}<span class="setting-text">Уведомления<small>Выключены</small></span><span class="setting-arrow">${icon('right', 18)}</span></a></div>
-    <div class="surface setting-group"><button class="setting-row" data-action="installation">${icon('phone', 22)}<span class="setting-text">Установка на телефон<small>На экран «Домой», нужно для пушей на iPhone</small></span><span class="setting-arrow">${icon('right', 18)}</span></button></div>
+    <div class="surface setting-group"><button class="setting-row" data-action="installation" aria-label="Установка на телефон" aria-describedby="installation-summary">${icon('phone', 22)}<span class="setting-text">Установка на телефон<small id="installation-summary">${installation.standalone ? 'Установлено, открыто как приложение' : 'На экран «Домой», нужно для пушей на iPhone'}</small></span><span class="setting-arrow">${icon('right', 18)}</span></button></div>
     <div class="surface setting-group"><div class="setting-row">${icon('account', 22)}<span class="setting-text">Аккаунт<small>${e(email)}</small></span></div><button class="sign-out" data-action="sign-out">Выйти</button></div>
   </div></section>`;
 }
@@ -104,6 +105,30 @@ export function notificationsView(settings, decks) {
 
 export function dialogHeading(title) {
   return `<div class="dialog-heading"><h2 id="dialog-title">${title}</h2><button type="button" class="icon-button" data-action="close-dialog" aria-label="Закрыть">${icon('close', 22)}</button></div>`;
+}
+
+export function installationDialog(info) {
+  let content;
+  if (info.standalone) {
+    content = '<p class="dialog-message">Приложение уже установлено и открыто с иконки.</p>';
+  } else if (info.installedInBrowser) {
+    content = '<p class="dialog-message">Приложение установлено. Теперь открой его иконку на рабочем столе или экране «Домой».</p>';
+  } else if (!info.secure) {
+    content = '<p class="dialog-message">Для установки открой опубликованный сайт по HTTPS. На компьютере для разработки подходит localhost.</p>';
+  } else if (info.ios) {
+    content = '<ol class="install-steps"><li>Открой этот сайт в Safari.</li><li>Нажми «Поделиться» — квадрат со стрелкой вверх.</li><li>Выбери «На экран „Домой“» и нажми «Добавить».</li><li>Закрой Safari и открой «Карточки» с новой иконки.</li></ol><p class="helper">На iPhone push-уведомления доступны в установленном приложении с iOS 16.4. Если при добавлении предлагается режим веб-приложения, оставь его включённым.</p>';
+  } else if (info.canPrompt) {
+    content = '<p class="dialog-message">«Карточки» будут открываться в отдельном окне с собственной иконкой.</p><button class="primary" data-action="install-pwa">Установить приложение</button>';
+  } else if (info.android) {
+    content = '<ol class="install-steps"><li>Открой сайт в Chrome.</li><li>Нажми ⋮ справа от адресной строки.</li><li>Выбери «Установить и создать ярлык» → «Установить».</li><li>Подтверди установку и открой новую иконку.</li></ol><p class="helper">В других версиях браузера пункт может называться «Добавить на главный экран».</p>';
+  } else {
+    content = '<ol class="install-steps"><li>Открой сайт в Chrome или Edge.</li><li>В Chrome нажми ⋮ → «Транслировать, сохранить, поделиться» → «Установить страницу как приложение».</li><li>Подтверди установку и открой отдельное окно «Карточек».</li></ol><p class="helper">Если браузер предлагает значок установки справа от адресной строки, можно нажать на него.</p>';
+  }
+  return `${dialogHeading(info.standalone ? 'Приложение установлено' : 'Установка приложения')}
+    <div class="dialog-form"><div class="install-intro"><img class="install-icon" src="${appUrl('assets/icons/icon-192.png')}" width="72" height="72" alt=""><div><h3>Карточки</h3><p class="helper">Своя иконка. Отдельное окно.</p></div></div>
+    ${info.error ? '<p class="form-message">Не удалось подготовить установку. Проверь интернет и обнови страницу.</p>' : ''}
+    ${content}<p class="helper">Для загрузки карточек и сохранения ответов нужен интернет.</p>
+    <button class="text-button install-done" data-action="close-dialog">Понятно</button></div>`;
 }
 
 export function deckDialog(deck = null) {

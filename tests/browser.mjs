@@ -11,6 +11,10 @@ const browser = await chromium.launch({
   ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}),
 });
 const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+await context.addInitScript(() => {
+  window.__notificationRequests = 0;
+  Notification.requestPermission = async () => { window.__notificationRequests += 1; return 'default'; };
+});
 const page = await context.newPage();
 page.setDefaultTimeout(10_000);
 const errors = [];
@@ -95,6 +99,25 @@ try {
   await page.getByRole('button', { name: 'Войти', exact: true }).waitFor();
   await page.evaluate(() => document.fonts.ready);
   assert(await page.evaluate(() => document.fonts.check('500 34px Lora') && document.fonts.check('400 16px Manrope')), 'оба шрифта загружены');
+  const pwaInfo = await page.evaluate(async () => {
+    const registration = await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('SW activation timeout')), 10_000)),
+    ]);
+    const file = document.querySelector('link[rel="manifest"]').href;
+    const manifest = await (await fetch(file)).json();
+    return { scope: registration.scope, worker: registration.active.scriptURL,
+      start: new URL(manifest.start_url, file).href, display: manifest.display,
+      apple: document.querySelector('link[rel="apple-touch-icon"]').href,
+      cached: await caches.keys(), notificationRequests: window.__notificationRequests };
+  });
+  assert.equal(pwaInfo.scope, url);
+  assert.equal(pwaInfo.worker, `${url}sw.js`);
+  assert.equal(pwaInfo.start, url);
+  assert.equal(pwaInfo.display, 'standalone');
+  assert.equal(pwaInfo.apple, `${url}assets/icons/apple-touch-icon.png`);
+  assert.deepEqual(pwaInfo.cached, []);
+  assert.equal(pwaInfo.notificationRequests, 0);
   await page.screenshot({ path: `${output}01-login.png` });
   await click('Регистрация');
   await fill('Почта', 'test@example.com'); await fill('Пароль', 'test-password');
@@ -170,6 +193,20 @@ try {
   await page.getByRole('link', { name: 'Настройки', exact: true }).click();
   assert.equal(await page.getByText('Тема', { exact: true }).count(), 0);
   await page.screenshot({ path: `${output}07-settings.png` });
+  await click('Установка на телефон');
+  await page.getByRole('heading', { name: 'Установка приложения', exact: true }).waitFor();
+  await page.evaluate(() => {
+    window.__installPrompts = 0;
+    const event = new Event('beforeinstallprompt', { cancelable: true });
+    event.prompt = async () => { window.__installPrompts += 1; };
+    event.userChoice = Promise.resolve({ outcome: 'dismissed' });
+    window.dispatchEvent(event);
+  });
+  assert.equal(await page.evaluate(() => window.__installPrompts), 0);
+  await page.screenshot({ path: `${output}09-installation.png` });
+  await click('Установить приложение');
+  assert.equal(await page.evaluate(() => window.__installPrompts), 1);
+  await click('Понятно');
   await page.getByRole('link', { name: 'Уведомления', exact: false }).click();
   await click('Вечер'); assert.equal(settings.per_day, 3);
   await click('Больше'); assert.equal(settings.per_day, 4);
@@ -255,6 +292,25 @@ try {
 
   assert.deepEqual(errors, []);
   console.log('PASS: регистрация, вход, CRUD, перенос карточки, избранное, фильтры, три оценки, RPC-конфликт, ошибка записи, ссылки карточек, настройки, ширины 320–1280, выход и смена пароля.');
+  console.log('PASS: manifest, активный service worker и scope, apple-touch-icon, отсутствие кеша и запроса уведомлений, установка только по нажатию.');
+
+  // Проверка iPhone-инструкции и standalone — эмуляция окружения, не физический iPhone.
+  const iosContext = await browser.newContext({ viewport: { width: 390, height: 844 },
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1' });
+  await iosContext.route('https://nvirttjdirfzsormbcun.supabase.co/**', route => route.abort());
+  const ios = await iosContext.newPage();
+  await ios.goto(url);
+  await ios.getByRole('button', { name: 'Как установить на iPhone', exact: true }).click();
+  await ios.getByText('Нажми «Поделиться»', { exact: false }).waitFor();
+  assert.equal(await ios.getByRole('button', { name: 'Установить приложение', exact: true }).count(), 0);
+  await ios.evaluate(() => document.fonts.ready);
+  await ios.screenshot({ path: `${output}10-iphone-installation.png` });
+  await iosContext.addInitScript(() => Object.defineProperty(navigator, 'standalone', { value: true }));
+  await ios.reload();
+  await ios.getByRole('button', { name: 'Войти', exact: true }).waitFor();
+  assert.equal(await ios.getByRole('button', { name: 'Как установить на iPhone', exact: true }).count(), 0);
+  await iosContext.close();
+  console.log('PASS: инструкция iPhone и скрытие предложения установки в standalone (эмуляция).');
   console.log('Все запросы Supabase были перехвачены. Реальные пользователи и письма не создавались.');
 } catch (error) {
   console.error(error.message);
